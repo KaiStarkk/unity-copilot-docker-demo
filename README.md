@@ -39,29 +39,38 @@ Running Unity Editor in GitHub Actions for Copilot coding agent requires solving
 
 ## Quick Start
 
-### Step 1: Generate Unity License (using GitHub Actions)
+### Step 1: Generate YOUR OWN Unity License
 
-This repo includes a helper workflow to generate the license file:
+**Important:** You cannot use license files from someone else's repo. Each user must generate their own license file tied to their own Unity account.
 
-1. **Fork this repository**
+1. **Fork this repository** to your own GitHub account
 
-2. **Set initial secrets** (Settings → Secrets → Actions):
+2. **Set secrets in YOUR fork** (Settings → Secrets → Actions):
    - `UNITY_EMAIL`: Your Unity account email
    - `UNITY_PASSWORD`: Your Unity account password
 
-3. **Run the license generator**:
-   - Go to **Actions** tab
+3. **Run the license generator in YOUR fork**:
+   - Go to the **Actions** tab in YOUR forked repo
    - Select **"Generate Unity License"**
    - Click **"Run workflow"** → Choose **"manual"**
-   - Download the generated `.alf` artifact
+   - Wait for the workflow to complete
+   - Download the `.alf` artifact from YOUR workflow run (Artifacts section at bottom of the run page)
 
 4. **Complete manual activation**:
    - Go to https://license.unity3d.com/manual
-   - Upload the `.alf` file
-   - If "Personal" option is hidden, open DevTools (F12), find `display: none` on the Personal div, remove it
+   - Upload YOUR `.alf` file
+   - **If "Personal" option is hidden** (common issue):
+     1. Press **F12** to open browser DevTools
+     2. Click the **Elements** tab
+     3. Press **Ctrl+F** (or Cmd+F) to search
+     4. Search for: `option-personal`
+     5. Find the div that looks like: `<div class="option option-personal" style="display: none;">`
+     6. Double-click `style="display: none;"` and delete it (or change to `style=""`)
+     7. The "Personal" license option should now appear
+   - Select **Personal** license type
    - Download the `.ulf` file
 
-5. **Set the license secret**:
+5. **Set the license secret in YOUR fork**:
    ```bash
    gh secret set UNITY_LICENSE --repo YOUR_USERNAME/unity-copilot-docker-demo < Unity_v2022.x.ulf
    ```
@@ -198,8 +207,10 @@ Once the workflow succeeds, Copilot coding agent can:
 - Ensure you're using the activation action, not manual license files
 
 **"Personal" option not showing on license.unity3d.com**
-- Use browser dev tools to remove `display: none;` from the Personal option div
-- See [GameCI troubleshooting](https://game.ci/docs/3/troubleshooting/common-issues/)
+- Unity sometimes hides the Personal license option via CSS
+- Open DevTools (F12) → Elements tab → Search for `option-personal`
+- Remove `style="display: none;"` from the div to reveal the option
+- See Step 1.4 above for detailed instructions
 
 ### Container Issues
 
