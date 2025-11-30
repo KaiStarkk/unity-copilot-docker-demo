@@ -33,6 +33,7 @@ jobs:
 
     # Service container for Unity Editor
     # Services persist throughout the job, including when Copilot works
+    # Note: We don't use health checks here because Unity is started later via docker exec
     services:
       unity:
         image: unityci/editor:ubuntu-2022.3.61f1-linux-il2cpp-3
@@ -40,10 +41,6 @@ jobs:
           - 8090:8090
         options: >-
           --name unity-editor
-          --health-cmd "pgrep -x Unity || exit 1"
-          --health-interval 30s
-          --health-timeout 10s
-          --health-retries 5
 
     steps:
       # ===========================================
