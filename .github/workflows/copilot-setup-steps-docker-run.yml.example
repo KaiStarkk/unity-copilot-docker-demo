@@ -1,0 +1,104 @@
+# Alternative approach using docker run -d instead of services
+#
+# Rename this file to copilot-setup-steps.yml to use this approach.
+# This method allows direct volume mounts but has less guaranteed persistence.
+#
+# Trade-offs:
+# - Services: More guaranteed persistence, but can't mount checked-out code directly
+# - Docker run: Can mount code directly, but lifecycle is less explicit
+
+name: Copilot Setup Steps (Docker Run)
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/copilot-setup-steps.yml'
+
+jobs:
+  copilot-setup-steps:
+    runs-on: ubuntu-latest
+    timeout-minutes: 59
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Activate license - this creates the license file on the runner
+      - name: Activate Unity License
+        uses: game-ci/unity-activate@v2
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+
+      # Create Docker network for container communication
+      - name: Create Docker network
+        run: docker network create unity-network || true
+
+      # Start Unity Editor in detached mode with volume mounts
+      - name: Start Unity Editor container (detached)
+        run: |
+          docker run -d \
+            --name unity-editor \
+            --network unity-network \
+            -p 8090:8090 \
+            -v "${{ github.workspace }}/UnityProject:/project:rw" \
+            -v "/home/runner/.local/share/unity3d/Unity:/root/.local/share/unity3d/Unity:ro" \
+            unityci/editor:ubuntu-2022.3.61f1-linux-il2cpp-3 \
+            /bin/bash -c "
+              echo 'Starting Unity Editor...'
+              unity-editor \
+                -batchmode \
+                -nographics \
+                -logFile /dev/stdout \
+                -projectPath /project \
+                -executeMethod Editor.Startup.Init \
+                2>&1 | tee /tmp/unity.log
+            "
+
+          echo "Unity container started"
+
+      # Wait for Unity to initialize
+      - name: Wait for Unity initialization
+        run: |
+          echo "Waiting for Unity to initialize..."
+
+          for i in {1..60}; do
+            if docker logs unity-editor 2>&1 | grep -q "Unity-MCP-Ready"; then
+              echo "Unity initialized successfully!"
+              exit 0
+            fi
+
+            if ! docker ps | grep -q unity-editor; then
+              echo "ERROR: Container exited"
+              docker logs unity-editor
+              exit 1
+            fi
+
+            echo "Waiting... ($i/60)"
+            sleep 5
+          done
+
+          echo "Timeout - checking status anyway"
+          docker logs unity-editor | tail -50
+
+      # Verify everything is running
+      - name: Verify setup
+        run: |
+          echo "=== Container Status ==="
+          docker ps
+
+          echo ""
+          echo "=== Unity Logs (last 20 lines) ==="
+          docker logs unity-editor 2>&1 | tail -20
+
+          echo ""
+          echo "=== Health Check ==="
+          # Try to connect to the health server
+          timeout 5 bash -c 'echo "ping" | nc localhost 8090' || echo "Health server not responding (may be normal)"
+
+          echo ""
+          echo "Setup complete! Unity Editor is running in background."
