@@ -39,26 +39,26 @@ Running Unity Editor in GitHub Actions for Copilot coding agent requires solving
 
 ## Quick Start
 
-### Step 1: Generate YOUR OWN Unity License
+### Step 1: Generate Your Own Unity License
 
 **Important:** You cannot use license files from someone else's repo. Each user must generate their own license file tied to their own Unity account.
 
 1. **Fork this repository** to your own GitHub account
 
-2. **Set secrets in YOUR fork** (Settings → Secrets → Actions):
+2. **Set secrets in your fork** (Settings → Secrets → Actions):
    - `UNITY_EMAIL`: Your Unity account email
    - `UNITY_PASSWORD`: Your Unity account password
 
-3. **Run the license generator in YOUR fork**:
-   - Go to the **Actions** tab in YOUR forked repo
+3. **Run the license generator in your fork**:
+   - Go to the **Actions** tab in your forked repo
    - Select **"Generate Unity License"**
    - Click **"Run workflow"** → Choose **"manual"**
    - Wait for the workflow to complete
-   - Download the `.alf` artifact from YOUR workflow run (Artifacts section at bottom of the run page)
+   - Download the `.alf` artifact from your workflow run (Artifacts section at bottom of the run page)
 
 4. **Complete manual activation**:
    - Go to https://license.unity3d.com/manual
-   - Upload YOUR `.alf` file
+   - Upload your `.alf` file
    - **If "Personal" option is hidden** (common issue):
      1. Press **F12** to open browser DevTools
      2. Click the **Elements** tab
@@ -70,7 +70,7 @@ Running Unity Editor in GitHub Actions for Copilot coding agent requires solving
    - Select **Personal** license type
    - Download the `.ulf` file
 
-5. **Set the license secret in YOUR fork**:
+5. **Set the license secret in your fork**:
    ```bash
    gh secret set UNITY_LICENSE --repo YOUR_USERNAME/unity-copilot-docker-demo < Unity_v2022.x.ulf
    ```
@@ -80,6 +80,37 @@ Running Unity Editor in GitHub Actions for Copilot coding agent requires solving
 1. Go to **Actions** tab
 2. Run **"Copilot Setup Steps"** manually
 3. Verify Unity starts successfully
+
+---
+
+## Unity Version Compatibility
+
+This demo uses **Unity 2022.3 LTS** by default. Here's what you need to know about different versions:
+
+### Unity 2022.x (Default)
+- Fully tested and working with Personal licenses
+- Uses `unityci/editor:ubuntu-2022.3.61f1-linux-il2cpp-3`
+- Manual .alf/.ulf activation flow works reliably
+
+### Unity 6 (6000.x)
+
+Unity 6 images are available on [Docker Hub](https://hub.docker.com/r/unityci/editor/tags) (e.g., `unityci/editor:ubuntu-6000.0.51f1-linux-il2cpp-3.1.0`), but there are licensing considerations:
+
+| License Type | Unity 6 Support |
+|--------------|-----------------|
+| **Pro/Plus** | Full support via serial key activation |
+| **Personal** | May require workarounds (see below) |
+| **License Server** | Full support via `unityLicensingServer` |
+
+**Personal License Changes in Unity 6:**
+- Unity is phasing out manual .alf/.ulf activation for Personal licenses
+- The recommended approach is to activate via Unity Hub locally, then copy the `.ulf` file
+- Consider using [unity-license-activate](https://github.com/game-ci/unity-license-activate) for automated license renewal
+
+**To use Unity 6**, update the image tag in the workflow:
+```yaml
+image: unityci/editor:ubuntu-6000.0.51f1-linux-il2cpp-3.1.0
+```
 
 ---
 
