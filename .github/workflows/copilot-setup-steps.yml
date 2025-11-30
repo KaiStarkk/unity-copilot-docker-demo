@@ -50,38 +50,14 @@ jobs:
           UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
 
       # ===========================================
-      # Step 3: Debug license location and copy
+      # Step 3: Prepare license file
       # ===========================================
-      - name: Debug and prepare license
+      - name: Prepare license file
         run: |
-          echo "=== Checking license locations ==="
-          echo "Runner home: $HOME"
-
-          echo ""
-          echo "=== /home/runner/.local/share/unity3d/ ==="
-          ls -laR /home/runner/.local/share/unity3d/ 2>/dev/null || echo "Not found"
-
-          echo ""
-          echo "=== Looking for .ulf files ==="
-          find /home/runner -name "*.ulf" 2>/dev/null || echo "No .ulf files found"
-
-          echo ""
-          echo "=== Unity config directory ==="
-          ls -laR /home/runner/.config/unity3d/ 2>/dev/null | head -50 || echo "Not found"
-
-          # Create license directory
+          # Create license directory and write the license file
           mkdir -p /tmp/unity-license
-
-          # Copy any license files we find
-          cp /home/runner/.local/share/unity3d/Unity/*.ulf /tmp/unity-license/ 2>/dev/null || true
-          cp /home/runner/.config/unity3d/Unity/Unity_lic.ulf /tmp/unity-license/ 2>/dev/null || true
-
-          # Also write the UNITY_LICENSE secret directly to a file
           echo '${{ secrets.UNITY_LICENSE }}' > /tmp/unity-license/Unity_lic.ulf
-
-          echo ""
-          echo "=== License files prepared ==="
-          ls -la /tmp/unity-license/
+          echo "License file prepared"
 
       # ===========================================
       # Step 4: Start Unity container with docker run -d
@@ -107,20 +83,8 @@ jobs:
           # Wait for container to be ready
           sleep 5
 
-          echo "Container started. Checking status..."
+          echo "Container started."
           docker ps
-
-          echo ""
-          echo "=== Project directory ==="
-          docker exec unity-editor ls -la /project/
-
-          echo ""
-          echo "=== License directory in container ==="
-          docker exec unity-editor ls -la /root/.local/share/unity3d/Unity/ || echo "License dir not found"
-
-          echo ""
-          echo "=== License file content (first 5 lines) ==="
-          docker exec unity-editor head -5 /root/.local/share/unity3d/Unity/Unity_lic.ulf || echo "License file not readable"
 
       # ===========================================
       # Step 5: Start Unity Editor inside the container
