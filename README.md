@@ -37,13 +37,54 @@ Running Unity Editor in GitHub Actions for Copilot coding agent requires solving
 └─────────────────────────────────────────────────────────────┘
 ```
 
-## Prerequisites
+## Quick Start
 
-### 1. Unity License Setup
+### Step 1: Generate Unity License (using GitHub Actions)
+
+This repo includes a helper workflow to generate the license file:
+
+1. **Fork this repository**
+
+2. **Set initial secrets** (Settings → Secrets → Actions):
+   - `UNITY_EMAIL`: Your Unity account email
+   - `UNITY_PASSWORD`: Your Unity account password
+
+3. **Run the license generator**:
+   - Go to **Actions** tab
+   - Select **"Generate Unity License"**
+   - Click **"Run workflow"** → Choose **"manual"**
+   - Download the generated `.alf` artifact
+
+4. **Complete manual activation**:
+   - Go to https://license.unity3d.com/manual
+   - Upload the `.alf` file
+   - If "Personal" option is hidden, open DevTools (F12), find `display: none` on the Personal div, remove it
+   - Download the `.ulf` file
+
+5. **Set the license secret**:
+   ```bash
+   gh secret set UNITY_LICENSE --repo YOUR_USERNAME/unity-copilot-docker-demo < Unity_v2022.x.ulf
+   ```
+
+### Step 2: Test the Setup
+
+1. Go to **Actions** tab
+2. Run **"Copilot Setup Steps"** manually
+3. Verify Unity starts successfully
+
+---
+
+## Prerequisites (Manual Setup)
+
+### Unity License Setup
 
 You need a Unity license. **Personal (free) licenses work**, but require proper setup.
 
-#### Generate License File Locally
+#### Option A: Generate License via GitHub Actions (Recommended)
+
+Use the included **"Generate Unity License"** workflow - it runs Unity in Docker to create the activation file for you.
+
+#### Option B: Generate License File Locally
 
 1. Open **Unity Hub** on your local machine
 2. Go to **Preferences → Licenses**
@@ -52,6 +93,8 @@ You need a Unity license. **Personal (free) licenses work**, but require proper 
    - **Windows:** `C:\ProgramData\Unity\Unity_lic.ulf`
    - **macOS:** `/Library/Application Support/Unity/Unity_lic.ulf`
    - **Linux:** `~/.local/share/unity3d/Unity/Unity_lic.ulf`
+
+**Note:** Modern Unity versions (Unity 6+) use cloud-based licensing which doesn't generate `.ulf` files automatically. Use the GitHub Actions workflow instead.
 
 #### Add GitHub Secrets
 
