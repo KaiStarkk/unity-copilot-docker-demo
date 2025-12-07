@@ -1,17 +1,35 @@
-# Unity Editor in Docker for GitHub Copilot Coding Agent
+# Unity Editor + MCP Server for GitHub Copilot Coding Agent
 #
-# This workflow demonstrates running Unity Editor in a Docker container
-# that persists while GitHub Copilot coding agent works.
+# This workflow sets up a complete Unity development environment with MCP
+# integration for GitHub Copilot. After setup completes, Copilot can interact
+# with Unity via the MCP protocol.
+#
+# Architecture:
+#   ┌─────────────────────────────────────────────────────────────┐
+#   │ GitHub Actions Runner                                       │
+#   │                                                             │
+#   │  ┌─────────────────┐     SignalR      ┌─────────────────┐  │
+#   │  │ Unity Editor    │◄────────────────►│ Unity-MCP-Server│  │
+#   │  │ + Unity-MCP     │   (Docker net)   │ (Service)       │  │
+#   │  │   Plugin        │                  │ localhost:8080  │  │
+#   │  └────────┬────────┘                  └────────▲────────┘  │
+#   │           │                                    │            │
+#   │           │ localhost:8090                     │ MCP        │
+#   │           │                                    │            │
+#   │           │                    ┌───────────────┴──────────┐ │
+#   │           └───── Health ──────►│  GitHub Copilot Agent    │ │
+#   │                                └──────────────────────────┘ │
+#   └─────────────────────────────────────────────────────────────┘
 #
 # Prerequisites:
-# 1. Set up GitHub Secrets (see README.md):
-#    - UNITY_LICENSE: Contents of your .ulf license file
-#    - UNITY_EMAIL: Your Unity account email
-#    - UNITY_PASSWORD: Your Unity account password
+#   - UNITY_LICENSE: Contents of your .ulf license file
+#   - UNITY_EMAIL: Your Unity account email
+#   - UNITY_PASSWORD: Your Unity account password
 #
 # References:
-# - GameCI Activation: https://game.ci/docs/github/activation/
-# - Copilot Setup Steps: https://docs.github.com/en/copilot/customizing-copilot/customizing-the-development-environment-for-copilot-coding-agent
+#   - Copilot Setup: https://docs.github.com/en/copilot/customizing-copilot/customizing-the-development-environment-for-copilot-coding-agent
+#   - Unity-MCP: https://github.com/IvanMurzak/Unity-MCP
+#   - GameCI: https://game.ci/docs/github/activation/
 
 name: Copilot Setup Steps
 
@@ -25,23 +43,43 @@ on:
       - '.github/workflows/copilot-setup-steps.yml'
 
 jobs:
+  # IMPORTANT: Job name MUST be exactly 'copilot-setup-steps' for Copilot to recognize it
   copilot-setup-steps:
     runs-on: ubuntu-latest
     timeout-minutes: 59
     permissions:
       contents: read
 
+    # =========================================================================
+    # SERVICE CONTAINERS
+    # Services persist throughout the job and are accessible to Copilot
+    # =========================================================================
+    services:
+      # Unity-MCP-Server: Bridges Copilot (MCP client) to Unity Editor
+      # Accessible at localhost:8080 via MCP protocol
+      mcp-server:
+        image: ivanmurzakdev/unity-mcp-server:latest
+        ports:
+          - 8080:8080
+        env:
+          TRANSPORT: http
+          # Unity container will be accessible at unity-editor:8090 on Docker network
+          SIGNALR_URL: http://unity-editor:8090/unityhub
+        options: >-
+          --health-cmd "curl -sf http://localhost:8080/health || exit 1"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+          --health-start-period 30s
+
     steps:
-      # ===========================================
-      # Step 1: Checkout repository
-      # ===========================================
+      # =========================================================================
+      # SETUP PHASE
+      # =========================================================================
+
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # ===========================================
-      # Step 2: Activate Unity License using GameCI
-      # This handles machine binding properly for CI
-      # ===========================================
       - name: Activate Unity License
         uses: game-ci/unity-activate@v2
         env:
@@ -49,51 +87,63 @@ jobs:
           UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
           UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
 
-      # ===========================================
-      # Step 3: Prepare license file
-      # ===========================================
-      - name: Prepare license file
-        run: |
-          # Create license directory and write the license file
-          mkdir -p /tmp/unity-license
-          echo '${{ secrets.UNITY_LICENSE }}' > /tmp/unity-license/Unity_lic.ulf
-          echo "License file prepared"
+      # =========================================================================
+      # DOCKER NETWORK SETUP
+      # Connect service container and Unity container on same network
+      # =========================================================================
 
-      # ===========================================
-      # Step 4: Start Unity container with docker run -d
-      # ===========================================
+      - name: Setup Docker networking
+        run: |
+          # Create a bridge network for Unity <-> MCP Server communication
+          docker network create unity-mcp-net || true
+
+          # Find the MCP server service container (started by GitHub Actions)
+          MCP_CONTAINER=$(docker ps --filter "ancestor=ivanmurzakdev/unity-mcp-server" --format "{{.ID}}" | head -1)
+
+          if [ -n "$MCP_CONTAINER" ]; then
+            echo "Found MCP Server container: $MCP_CONTAINER"
+            # Connect it to our custom network with a predictable alias
+            docker network connect --alias mcp-server unity-mcp-net "$MCP_CONTAINER" 2>/dev/null || true
+          else
+            echo "Warning: MCP Server container not found yet"
+          fi
+
+      # =========================================================================
+      # UNITY EDITOR CONTAINER
+      # =========================================================================
+
+      - name: Prepare Unity license
+        run: |
+          mkdir -p /tmp/unity-license
+          # Copy GameCI activated license
+          cp -r ~/.local/share/unity3d/Unity/. /tmp/unity-license/ 2>/dev/null || true
+          # Also write secret as backup
+          echo '${{ secrets.UNITY_LICENSE }}' > /tmp/unity-license/Unity_lic.ulf
+          echo "License prepared in /tmp/unity-license/"
+          ls -la /tmp/unity-license/
+
       - name: Start Unity Editor container
         run: |
           echo "Starting Unity Editor container..."
 
-          # Start the Unity container in detached mode
           docker run -d \
             --name unity-editor \
+            --network unity-mcp-net \
+            --network-alias unity-editor \
             -p 8090:8090 \
             -v "${{ github.workspace }}/UnityProject:/project:rw" \
             -v "/tmp/unity-license:/root/.local/share/unity3d/Unity:rw" \
             unityci/editor:ubuntu-2022.3.61f1-linux-il2cpp-3 \
-            /bin/bash -c "
-              echo 'Unity container started'
-              echo 'Waiting for commands...'
-              # Keep container running
-              tail -f /dev/null
-            "
+            /bin/bash -c "tail -f /dev/null"
 
-          # Wait for container to be ready
-          sleep 5
+          sleep 3
+          echo "Container started:"
+          docker ps --filter name=unity-editor --format "table {{.ID}}\t{{.Status}}\t{{.Ports}}"
 
-          echo "Container started."
-          docker ps
-
-      # ===========================================
-      # Step 5: Start Unity Editor inside the container
-      # ===========================================
-      - name: Start Unity Editor
+      - name: Start Unity Editor process
         run: |
-          echo "Starting Unity Editor in batch mode..."
+          echo "Launching Unity Editor in batch mode..."
 
-          # Start Unity in background
           docker exec -d unity-editor /bin/bash -c "
             unity-editor \
               -batchmode \
@@ -102,80 +152,93 @@ jobs:
               -projectPath /project \
               -executeMethod Editor.Startup.Init \
               2>&1 &
-
-            # Keep the exec running to monitor
             tail -f /tmp/unity.log 2>/dev/null || tail -f /dev/null
           "
 
-          echo "Unity Editor starting..."
+      # =========================================================================
+      # INITIALIZATION WAIT
+      # =========================================================================
 
-      # ===========================================
-      # Step 6: Wait for Unity to initialize
-      # ===========================================
       - name: Wait for Unity initialization
         run: |
           echo "Waiting for Unity Editor to initialize..."
+          echo "This may take 2-5 minutes for first-time project import..."
 
           timeout=300
           elapsed=0
 
           while [ $elapsed -lt $timeout ]; do
-            # Check if Unity process is running
+            # Check if Unity process exists
             if docker exec unity-editor pgrep -f "Unity" > /dev/null 2>&1; then
-              echo "Unity process detected!"
-
-              # Check for initialization marker
-              if docker exec unity-editor cat /tmp/unity.log 2>/dev/null | grep -q "Unity-MCP-Ready"; then
-                echo "Unity MCP initialized successfully!"
+              # Check for ready marker
+              if docker exec unity-editor grep -q "Unity-MCP-Ready" /tmp/unity.log 2>/dev/null; then
+                echo ""
+                echo "Unity initialized successfully!"
                 exit 0
               fi
 
-              # Check for license errors
-              if docker exec unity-editor cat /tmp/unity.log 2>/dev/null | grep -q "No valid Unity Editor license"; then
-                echo "ERROR: License activation failed"
-                docker exec unity-editor cat /tmp/unity.log | tail -50
+              # Check for fatal errors
+              if docker exec unity-editor grep -q "No valid Unity Editor license" /tmp/unity.log 2>/dev/null; then
+                echo "ERROR: License activation failed!"
+                docker exec unity-editor tail -50 /tmp/unity.log
                 exit 1
               fi
             fi
 
-            # Check if container is still running
-            if ! docker ps | grep -q unity-editor; then
-              echo "ERROR: Unity container stopped unexpectedly"
-              docker logs unity-editor 2>&1 | tail -50
+            # Verify container health
+            if ! docker ps --filter name=unity-editor --filter status=running -q | grep -q .; then
+              echo "ERROR: Unity container stopped!"
+              docker logs unity-editor 2>&1 | tail -30
               exit 1
             fi
 
             sleep 10
             elapsed=$((elapsed + 10))
-            echo "Waiting... ($elapsed/$timeout seconds)"
-
-            # Show recent logs
-            docker exec unity-editor tail -5 /tmp/unity.log 2>/dev/null || true
+            printf "Waiting... %d/%ds " "$elapsed" "$timeout"
+            docker exec unity-editor tail -1 /tmp/unity.log 2>/dev/null | head -c 80 || true
+            echo ""
           done
 
-          echo "Timeout reached. Checking final status..."
-          docker exec unity-editor cat /tmp/unity.log 2>/dev/null | tail -100 || true
+          echo "Warning: Timeout reached. Checking status..."
+          docker exec unity-editor tail -30 /tmp/unity.log 2>/dev/null || true
 
-      # ===========================================
-      # Step 7: Verify Unity is running
-      # ===========================================
-      - name: Verify Unity status
+      # =========================================================================
+      # VERIFICATION
+      # =========================================================================
+
+      - name: Verify setup
         run: |
-          echo "=== Container Status ==="
-          docker ps
+          echo "=========================================="
+          echo "       COPILOT ENVIRONMENT READY"
+          echo "=========================================="
+          echo ""
+
+          echo "Running Containers:"
+          docker ps --format "  {{.Names}}: {{.Status}}"
 
           echo ""
-          echo "=== Unity Process ==="
-          docker exec unity-editor ps aux | grep -i unity || echo "No Unity process found"
+          echo "Network (unity-mcp-net):"
+          docker network inspect unity-mcp-net --format '{{range .Containers}}  {{.Name}}: {{.IPv4Address}}{{"\n"}}{{end}}' 2>/dev/null || echo "  (pending)"
 
           echo ""
-          echo "=== Port Status ==="
-          docker exec unity-editor netstat -tlnp 2>/dev/null | grep 8090 || echo "Port 8090 not bound yet"
+          echo "Unity Status:"
+          docker exec unity-editor pgrep -a Unity 2>/dev/null | head -1 || echo "  Process not found"
 
           echo ""
-          echo "=== Recent Logs ==="
-          docker exec unity-editor tail -30 /tmp/unity.log 2>/dev/null || echo "No logs available"
+          echo "Port Bindings:"
+          echo "  localhost:8080 -> MCP Server (Copilot connects here)"
+          echo "  localhost:8090 -> Unity Health Check"
 
           echo ""
-          echo "Setup complete! Unity Editor container 'unity-editor' is running."
-          echo "Access via: localhost:8090"
+          echo "MCP Server Health:"
+          curl -sf http://localhost:8080/health 2>/dev/null && echo " OK" || echo "  Pending..."
+
+          echo ""
+          echo "Unity Logs (last 10 lines):"
+          docker exec unity-editor tail -10 /tmp/unity.log 2>/dev/null | sed 's/^/  /' || echo "  No logs"
+
+          echo ""
+          echo "=========================================="
+          echo "Copilot can now use Unity via MCP!"
+          echo "  MCP endpoint: http://localhost:8080"
+          echo "=========================================="

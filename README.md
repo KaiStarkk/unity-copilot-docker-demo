@@ -1,193 +1,129 @@
-# Unity Editor in Docker for GitHub Copilot Coding Agent
+# Unity + MCP for GitHub Copilot Coding Agent
 
-This repository demonstrates how to run Unity Editor in a Docker container that persists while GitHub Copilot coding agent works on your project.
+This repository demonstrates running Unity Editor with Unity-MCP integration for GitHub Copilot's coding agent. After setup, Copilot can interact with Unity via the Model Context Protocol (MCP).
 
-## The Challenge
-
-Running Unity Editor in GitHub Actions for Copilot coding agent requires solving several problems:
-
-1. **License activation** - Unity licenses are bound to machine IDs, which change on every CI run
-2. **Container persistence** - The Unity container must stay alive while Copilot works
-3. **Project access** - The container needs access to your checked-out repository code
-4. **Background execution** - Unity must run in the background without blocking the workflow
-
-## Solution Architecture
+## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    GitHub Actions Runner                     │
-├─────────────────────────────────────────────────────────────┤
-│                                                              │
-│  ┌──────────────────┐      ┌──────────────────────────────┐ │
-│  │ copilot-setup-   │      │    Unity Service Container   │ │
-│  │ steps job        │      │    (unityci/editor)          │ │
-│  │                  │      │                              │ │
-│  │ 1. Checkout      │      │  - Unity Editor (batchmode)  │ │
-│  │ 2. Activate ───────────>│  - Health server :8090       │ │
-│  │    license       │      │  - Project files (copied)    │ │
-│  │ 3. Copy project  │      │                              │ │
-│  │ 4. Start Unity   │      │  Persists while Copilot      │ │
-│  │                  │      │  works on the codebase       │ │
-│  └──────────────────┘      └──────────────────────────────┘ │
-│                                                              │
-│  ┌──────────────────────────────────────────────────────────┐│
-│  │              Copilot Coding Agent                        ││
-│  │    Can interact with Unity via port 8090                 ││
-│  └──────────────────────────────────────────────────────────┘│
-└─────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────┐
+│                    GitHub Actions Runner                          │
+│                                                                    │
+│  ┌─────────────────────┐    SignalR     ┌──────────────────────┐  │
+│  │  Unity Editor       │◄──────────────►│  Unity-MCP-Server    │  │
+│  │  (Docker container) │  Docker network │  (GitHub Service)    │  │
+│  │                     │                 │  localhost:8080      │  │
+│  │  + Unity-MCP Plugin │                 │                      │  │
+│  │  + Health :8090     │                 │                      │  │
+│  └─────────────────────┘                 └──────────▲───────────┘  │
+│                                                     │              │
+│                                          MCP Protocol              │
+│                                                     │              │
+│                                   ┌─────────────────┴────────────┐ │
+│                                   │   GitHub Copilot Agent       │ │
+│                                   │   (connects to localhost:8080)│ │
+│                                   └──────────────────────────────┘ │
+└──────────────────────────────────────────────────────────────────┘
 ```
+
+## Key Features
+
+- **GitHub Services**: Unity-MCP-Server runs as a proper GitHub Actions service
+- **Docker networking**: Unity Editor and MCP Server communicate via Docker bridge network
+- **License handling**: GameCI activation with automatic machine binding
+- **Keep-alive**: Unity stays running while Copilot works
 
 ## Quick Start
 
-### Step 1: Generate Your Own Unity License
+### 1. Fork this repository
 
-**Important:** You cannot use license files from someone else's repo. Each user must generate their own license file tied to their own Unity account.
+### 2. Generate Unity License
 
-1. **Fork this repository** to your own GitHub account
+Run the **"Generate Unity License"** workflow:
 
-2. **Set secrets in your fork** (Settings → Secrets → Actions):
-   - `UNITY_EMAIL`: Your Unity account email
-   - `UNITY_PASSWORD`: Your Unity account password
+1. Go to **Actions** tab
+2. Select **"Generate Unity License"**
+3. Click **"Run workflow"** → Choose **"manual"**
+4. Download the `.alf` artifact
 
-3. **Run the license generator in your fork**:
-   - Go to the **Actions** tab in your forked repo
-   - Select **"Generate Unity License"**
-   - Click **"Run workflow"** → Choose **"manual"**
-   - Wait for the workflow to complete
-   - Download the `.alf` artifact from your workflow run (Artifacts section at bottom of the run page)
+Complete manual activation:
+1. Go to https://license.unity3d.com/manual
+2. Upload your `.alf` file
+3. **If "Personal" option is hidden**: Press F12 → Elements → Search `option-personal` → Remove `style="display: none;"`
+4. Select **Personal** license
+5. Download the `.ulf` file
 
-4. **Complete manual activation**:
-   - Go to https://license.unity3d.com/manual
-   - Upload your `.alf` file
-   - **If "Personal" option is hidden** (common issue):
-     1. Press **F12** to open browser DevTools
-     2. Click the **Elements** tab
-     3. Press **Ctrl+F** (or Cmd+F) to search
-     4. Search for: `option-personal`
-     5. Find the div that looks like: `<div class="option option-personal" style="display: none;">`
-     6. Double-click `style="display: none;"` and delete it (or change to `style=""`)
-     7. The "Personal" license option should now appear
-   - Select **Personal** license type
-   - Download the `.ulf` file
+### 3. Set GitHub Secrets
 
-5. **Set the license secret in your fork**:
-   ```bash
-   gh secret set UNITY_LICENSE --repo YOUR_USERNAME/unity-copilot-docker-demo < Unity_v2022.x.ulf
-   ```
+Go to **Settings → Secrets and variables → Actions**:
 
-### Step 2: Test the Setup
+| Secret | Value |
+|--------|-------|
+| `UNITY_LICENSE` | Contents of your `.ulf` file |
+| `UNITY_EMAIL` | Your Unity account email |
+| `UNITY_PASSWORD` | Your Unity account password |
+
+Or via CLI:
+```bash
+gh secret set UNITY_LICENSE < Unity_v2022.x.ulf
+gh secret set UNITY_EMAIL
+gh secret set UNITY_PASSWORD
+```
+
+### 4. Test the Setup
 
 1. Go to **Actions** tab
 2. Run **"Copilot Setup Steps"** manually
-3. Verify Unity starts successfully
-
----
-
-## Unity Version Compatibility
-
-This demo uses **Unity 2022.3 LTS** by default. Here's what you need to know about different versions:
-
-### Unity 2022.x (Default)
-- Fully tested and working with Personal licenses
-- Uses `unityci/editor:ubuntu-2022.3.61f1-linux-il2cpp-3`
-- Manual .alf/.ulf activation flow works reliably
-
-### Unity 6 (6000.x)
-
-Unity 6 images are available on [Docker Hub](https://hub.docker.com/r/unityci/editor/tags) (e.g., `unityci/editor:ubuntu-6000.0.51f1-linux-il2cpp-3.1.0`), but there are licensing considerations:
-
-| License Type | Unity 6 Support |
-|--------------|-----------------|
-| **Pro/Plus** | Full support via serial key activation |
-| **Personal** | May require workarounds (see below) |
-| **License Server** | Full support via `unityLicensingServer` |
-
-**Personal License Changes in Unity 6:**
-- Unity is phasing out manual .alf/.ulf activation for Personal licenses
-- The recommended approach is to activate via Unity Hub locally, then copy the `.ulf` file
-- Consider using [unity-license-activate](https://github.com/game-ci/unity-license-activate) for automated license renewal
-
-**To use Unity 6**, update the image tag in the workflow:
-```yaml
-image: unityci/editor:ubuntu-6000.0.51f1-linux-il2cpp-3.1.0
-```
-
----
-
-## Prerequisites (Manual Setup)
-
-### Unity License Setup
-
-You need a Unity license. **Personal (free) licenses work**, but require proper setup.
-
-#### Option A: Generate License via GitHub Actions (Recommended)
-
-Use the included **"Generate Unity License"** workflow - it runs Unity in Docker to create the activation file for you.
-
-#### Option B: Generate License File Locally
-
-1. Open **Unity Hub** on your local machine
-2. Go to **Preferences → Licenses**
-3. Click **Add** and select **"Get a free personal license"**
-4. Find the generated `.ulf` file:
-   - **Windows:** `C:\ProgramData\Unity\Unity_lic.ulf`
-   - **macOS:** `/Library/Application Support/Unity/Unity_lic.ulf`
-   - **Linux:** `~/.local/share/unity3d/Unity/Unity_lic.ulf`
-
-**Note:** Modern Unity versions (Unity 6+) use cloud-based licensing which doesn't generate `.ulf` files automatically. Use the GitHub Actions workflow instead.
-
-#### Add GitHub Secrets
-
-Go to your repository **Settings → Secrets and variables → Actions** and add:
-
-| Secret Name | Value |
-|-------------|-------|
-| `UNITY_LICENSE` | Full contents of the `.ulf` file |
-| `UNITY_EMAIL` | Your Unity account email |
-| `UNITY_PASSWORD` | Your Unity account password (avoid special characters) |
-
-### 2. Enable GitHub Copilot Coding Agent
-
-Ensure your repository has GitHub Copilot coding agent enabled. See [GitHub's documentation](https://docs.github.com/en/copilot/how-tos/use-copilot-agents/coding-agent).
+3. Verify Unity starts and MCP Server connects
 
 ## How It Works
 
-### Service Container Approach
+### Service Container (Unity-MCP-Server)
 
-The workflow uses GitHub Actions' `services` feature to run Unity as a sidecar container:
+The MCP Server runs as a GitHub Actions service - it starts automatically and persists throughout the job:
 
 ```yaml
 services:
-  unity:
-    image: unityci/editor:ubuntu-2022.3.61f1-linux-il2cpp-3
+  mcp-server:
+    image: ivanmurzakdev/unity-mcp-server:latest
     ports:
-      - 8090:8090
-    options: --name unity-editor
+      - 8080:8080
+    env:
+      TRANSPORT: http
+      SIGNALR_URL: http://unity-editor:8090/unityhub
 ```
 
-**Why services?** Service containers persist throughout the entire job, including when Copilot takes over after setup steps complete.
+### Unity Container (docker run)
 
-### Project File Injection
-
-Since services start before checkout, we copy the project into the running container:
+Unity needs license preparation before starting, so it uses `docker run` after the activation step:
 
 ```yaml
-- name: Copy Unity project to service container
-  run: docker cp ./UnityProject/. unity-editor:/project/
+- name: Start Unity Editor container
+  run: |
+    docker run -d \
+      --name unity-editor \
+      --network unity-mcp-net \
+      -v "${{ github.workspace }}/UnityProject:/project:rw" \
+      unityci/editor:ubuntu-2022.3.61f1-linux-il2cpp-3 \
+      /bin/bash -c "tail -f /dev/null"
 ```
 
-### Keep-Alive Mechanism
+### Docker Networking
 
-The `Startup.cs` script prevents Unity from exiting by:
-1. Starting a TCP health server on port 8090
-2. Entering an infinite loop that checks for shutdown signals
+Both containers are connected to the same Docker network (`unity-mcp-net`), allowing them to communicate:
+
+- MCP Server reaches Unity at `unity-editor:8090`
+- Copilot reaches MCP Server at `localhost:8080`
+
+### Keep-Alive Script
+
+The `Startup.cs` script prevents Unity from exiting:
 
 ```csharp
 public static void Init()
 {
-    StartHealthServer();      // Port 8090 for health checks
-    Debug.Log("Unity-MCP-Ready");  // Signal initialization complete
-    KeepAlive();              // Block forever (until shutdown signal)
+    StartHealthServer();              // TCP server on port 8090
+    Debug.Log("Unity-MCP-Ready");     // Signal initialization complete
+    KeepAlive();                      // Block forever
 }
 ```
 
@@ -197,61 +133,52 @@ public static void Init()
 .
 ├── .github/
 │   └── workflows/
-│       └── copilot-setup-steps.yml    # Main workflow
+│       ├── copilot-setup-steps.yml     # Main workflow (uses services!)
+│       └── generate-unity-license.yml  # License generation helper
 ├── UnityProject/
 │   ├── Assets/
 │   │   └── Editor/
-│   │       ├── Editor.asmdef          # Assembly definition
 │   │       └── Scripts/
-│   │           └── Startup.cs         # Keep-alive script
+│   │           └── Startup.cs          # Keep-alive script
+│   ├── Packages/
+│   │   └── manifest.json               # Unity-MCP package reference
 │   └── ProjectSettings/
-│       ├── ProjectSettings.asset
-│       └── ProjectVersion.txt
 └── README.md
 ```
 
-## Usage
+## Unity-MCP Package
 
-### Testing the Workflow
+This project includes Unity-MCP as a package dependency in `Packages/manifest.json`:
 
-1. Fork or clone this repository
-2. Add the required secrets (see Prerequisites)
-3. Go to **Actions** tab
-4. Run the **"Copilot Setup Steps"** workflow manually
+```json
+{
+  "dependencies": {
+    "com.ivanmurzak.unity-mcp": "https://github.com/IvanMurzak/Unity-MCP.git?path=Assets/Unity-MCP"
+  }
+}
+```
 
-### Using with Copilot Coding Agent
-
-Once the workflow succeeds, Copilot coding agent can:
-- Access Unity Editor via the service container
-- Make changes to your Unity project
-- Verify changes compile correctly
+Unity will automatically download and install the package on first run.
 
 ## Troubleshooting
 
 ### License Errors
 
 **"Machine bindings don't match"**
-- Don't manually mount `.ulf` files - use `game-ci/unity-activate@v2`
-
-**"com.unity.editor.headless was not found"**
-- This is a known issue with GameCI Docker images v3+
-- Ensure you're using the activation action, not manual license files
+- Use `game-ci/unity-activate@v2` instead of manually copying license files
 
 **"Personal" option not showing on license.unity3d.com**
-- Unity sometimes hides the Personal license option via CSS
-- Open DevTools (F12) → Elements tab → Search for `option-personal`
-- Remove `style="display: none;"` from the div to reveal the option
-- See Step 1.4 above for detailed instructions
+- Open DevTools (F12) → Elements → Search `option-personal` → Remove `style="display: none;"`
 
 ### Container Issues
 
 **Unity container exits immediately**
-- Check that `Startup.cs` has the keep-alive loop
-- Ensure `-executeMethod Editor.Startup.Init` is correct
+- Check `Startup.cs` has the keep-alive loop
+- Ensure `-executeMethod Editor.Startup.Init` is specified
 
-**Port 8090 not accessible**
-- Verify the service has `ports: - 8090:8090`
-- Check Unity logs for TCP server startup messages
+**MCP Server can't reach Unity**
+- Verify both containers are on `unity-mcp-net` network
+- Check Unity is listening on port 8090
 
 ### Debugging
 
@@ -260,41 +187,39 @@ View Unity logs:
 docker exec unity-editor cat /tmp/unity.log
 ```
 
-Check if Unity is running:
+Check network connectivity:
 ```bash
-docker exec unity-editor pgrep -x Unity
+docker network inspect unity-mcp-net
 ```
 
-## Alternative Approaches
+Test MCP Server health:
+```bash
+curl http://localhost:8080/health
+```
 
-### Docker Run Instead of Services
+## Unity Version Compatibility
 
-If you prefer explicit control, you can use `docker run -d`:
+| Version | Status |
+|---------|--------|
+| Unity 2022.3 LTS | Tested, working |
+| Unity 6 (6000.x) | Should work (Pro license may be required) |
 
+To change Unity version, update the image tag:
 ```yaml
-- name: Start Unity container
-  run: |
-    docker run -d --name unity-editor \
-      -p 8090:8090 \
-      -v "${{ github.workspace }}/UnityProject:/project" \
-      unityci/editor:ubuntu-2022.3.61f1-linux-il2cpp-3 \
-      /bin/bash -c "unity-editor -batchmode -nographics ..."
+image: unityci/editor:ubuntu-6000.0.51f1-linux-il2cpp-3.1.0
 ```
-
-This approach allows direct volume mounts but has less guaranteed persistence.
 
 ## References
 
 - [GitHub Copilot Coding Agent Setup](https://docs.github.com/en/copilot/customizing-copilot/customizing-the-development-environment-for-copilot-coding-agent)
+- [Unity-MCP Project](https://github.com/IvanMurzak/Unity-MCP)
 - [GameCI Activation Guide](https://game.ci/docs/github/activation/)
-- [GameCI Docker Images](https://game.ci/docs/docker/docker-images/)
 - [GitHub Actions Service Containers](https://docs.github.com/en/actions/use-cases-and-examples/using-containerized-services/about-service-containers)
-- [Original Challenge Discussion](https://github.com/IvanMurzak/Unity-MCP/pull/308)
-
-## License
-
-MIT License - feel free to use this as a starting point for your own Unity + Copilot integration.
 
 ## Contributing
 
-Contributions welcome! Please open an issue or PR if you find improvements or fixes.
+Contributions welcome! This is part of the [Unity-MCP challenge](https://github.com/IvanMurzak/Unity-MCP/pull/308).
+
+## License
+
+MIT License
