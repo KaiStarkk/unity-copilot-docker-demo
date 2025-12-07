@@ -1,6 +1,6 @@
 {
   "dependencies": {
-    "com.ivanmurzak.unity-mcp": "https://github.com/IvanMurzak/Unity-MCP.git?path=Assets/Unity-MCP",
+    "com.ivanmurzak.unity-mcp": "https://github.com/IvanMurzak/Unity-MCP.git?path=Unity-MCP-Plugin/Assets/root",
     "com.unity.ide.rider": "3.0.31",
     "com.unity.ide.visualstudio": "2.0.22",
     "com.unity.ide.vscode": "1.2.5",
