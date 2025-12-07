@@ -65,12 +65,8 @@ jobs:
           TRANSPORT: http
           # Unity container will be accessible at unity-editor:8090 on Docker network
           SIGNALR_URL: http://unity-editor:8090/unityhub
-        options: >-
-          --health-cmd "curl -sf http://localhost:8080/health || exit 1"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 10
-          --health-start-period 30s
+        # Note: No health check - the .NET container doesn't have curl/wget
+        # The server logs "Start listening on port: 8080" when ready
 
     steps:
       # =========================================================================
@@ -230,8 +226,9 @@ jobs:
           echo "  localhost:8090 -> Unity Health Check"
 
           echo ""
-          echo "MCP Server Health:"
-          curl -sf http://localhost:8080/health 2>/dev/null && echo " OK" || echo "  Pending..."
+          echo "MCP Server Status:"
+          curl -sf http://localhost:8080/help 2>/dev/null | head -3 || echo "  (checking port...)"
+          nc -zv localhost 8080 2>&1 | grep -q succeeded && echo "  Port 8080: Open" || echo "  Port 8080: Closed"
 
           echo ""
           echo "Unity Logs (last 10 lines):"
