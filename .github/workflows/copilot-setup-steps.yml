@@ -63,10 +63,11 @@ jobs:
         image: unityci/editor:ubuntu-2022.3.61f1-linux-il2cpp-3
         ports:
           - 8090:8090
-        # Use 'cat' as entrypoint - it waits for stdin forever, keeping container alive
-        # No health check - we'll verify Unity manually in steps
+        # Use 'bash' as entrypoint - keeps container waiting for input
+        # The default ENTRYPOINT is ["bash", "-c"] which exits, but just "bash" waits
         options: >-
-          --entrypoint cat
+          --entrypoint /bin/bash
+          -t
 
       # Unity-MCP-Server Service
       # Bridges Copilot (MCP client) to Unity Editor
