@@ -1,17 +1,13 @@
 # Helper workflow to generate Unity license file (.ulf)
 #
-# This workflow runs on GitHub Actions (which has Docker) to generate
-# the Unity license file that's needed for CI/CD.
+# SECURITY NOTE: This workflow does NOT upload license files as artifacts.
+# License files are sensitive and should never be publicly accessible.
 #
-# Steps:
-# 1. Run this workflow manually from Actions tab
-# 2. It will generate an activation file (.alf)
-# 3. Upload the .alf to https://license.unity3d.com/manual
-# 4. Download the .ulf file
-# 5. Set it as UNITY_LICENSE secret
-#
-# Alternatively, this workflow can try automatic activation using
-# your Unity credentials (if 2FA is not enabled).
+# For manual activation:
+#   1. Run this workflow - it outputs the ALF content to logs (safe, it's just a request)
+#   2. Copy the ALF content and save locally as .alf file
+#   3. Upload to https://license.unity3d.com/manual
+#   4. Download the .ulf and set as secret: gh secret set UNITY_LICENSE < file.ulf
 
 name: Generate Unity License
 
@@ -36,112 +32,124 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # Method 1: Generate .alf file for manual activation
-      - name: Generate activation file (.alf)
+      # =========================================================================
+      # MANUAL METHOD: Generate .alf and output to logs (safe - ALF is not sensitive)
+      # =========================================================================
+      - name: Generate activation request (.alf)
         if: inputs.activation_method == 'manual'
         run: |
-          echo "Generating Unity activation file..."
+          echo "Generating Unity activation request file..."
 
           docker run --rm -v $PWD:/output \
             unityci/editor:ubuntu-2022.3.61f1-linux-il2cpp-3 \
             bash -c "
               unity-editor -batchmode -createManualActivationFile -logfile /dev/stdout -nographics || true
-              cp /*.alf /output/ 2>/dev/null || echo 'ALF file not in root'
+              cp /*.alf /output/ 2>/dev/null || true
               find / -name '*.alf' -exec cp {} /output/ \; 2>/dev/null || true
             "
 
-          echo ""
-          echo "=== Generated files ==="
-          ls -la *.alf 2>/dev/null || echo "No .alf files found in current directory"
-
-      - name: Upload activation file
-        if: inputs.activation_method == 'manual'
-        uses: actions/upload-artifact@v4
-        with:
-          name: unity-activation-file
-          path: "*.alf"
-          if-no-files-found: warn
+          # Check if ALF was generated
+          if ls *.alf 1>/dev/null 2>&1; then
+            echo ""
+            echo "=========================================="
+            echo "  ALF FILE GENERATED SUCCESSFULLY"
+            echo "=========================================="
+            echo ""
+            echo "Copy the content below and save as 'Unity_v2022.alf':"
+            echo ""
+            echo "--- BEGIN ALF FILE ---"
+            cat *.alf
+            echo ""
+            echo "--- END ALF FILE ---"
+            echo ""
+          else
+            echo "ERROR: No .alf file was generated"
+            exit 1
+          fi
 
       - name: Manual activation instructions
         if: inputs.activation_method == 'manual'
         run: |
           echo ""
           echo "=========================================="
-          echo "  MANUAL ACTIVATION INSTRUCTIONS"
+          echo "  NEXT STEPS"
           echo "=========================================="
           echo ""
-          echo "1. Download the 'unity-activation-file' artifact from this workflow run"
+          echo "1. Copy the ALF content from the logs above"
+          echo "2. Save it locally as 'Unity_v2022.alf'"
+          echo "3. Go to: https://license.unity3d.com/manual"
+          echo "4. Upload the .alf file"
           echo ""
-          echo "2. Go to: https://license.unity3d.com/manual"
-          echo ""
-          echo "3. Upload the .alf file"
-          echo ""
-          echo "4. If 'Personal' option is hidden, open browser DevTools (F12),"
-          echo "   find the line with 'display: none' for the Personal option,"
-          echo "   and remove that style"
+          echo "   NOTE: If 'Personal' option is hidden:"
+          echo "   - Press F12 to open DevTools"
+          echo "   - Go to Elements tab, search for 'option-personal'"
+          echo "   - Remove 'style=\"display: none;\"' from that div"
           echo ""
           echo "5. Download the generated .ulf file"
+          echo "6. Set it as a secret (DO NOT commit or upload it!):"
           echo ""
-          echo "6. Set it as a secret in your repository:"
-          echo "   gh secret set UNITY_LICENSE < /path/to/Unity_v2022.x.ulf"
+          echo "   gh secret set UNITY_LICENSE --repo ${{ github.repository }} < Unity_v2022.x.ulf"
           echo ""
           echo "=========================================="
 
-      # Method 2: Try automatic activation (may fail with 2FA)
+      # =========================================================================
+      # AUTOMATIC METHOD: Try to activate and set secret directly
+      # =========================================================================
       - name: Attempt automatic activation
         if: inputs.activation_method == 'automatic'
-        continue-on-error: true
         env:
           UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
           UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           echo "Attempting automatic Unity license activation..."
-          echo "Note: This may fail if you have 2FA enabled on your Unity account"
+          echo "Note: This may fail if you have 2FA enabled"
 
-          # Try using GameCI's activation
           docker run --rm \
             -e UNITY_EMAIL="$UNITY_EMAIL" \
             -e UNITY_PASSWORD="$UNITY_PASSWORD" \
             -v $PWD:/output \
             unityci/editor:ubuntu-2022.3.61f1-linux-il2cpp-3 \
             bash -c "
-              # Try to activate with credentials
               unity-editor -batchmode -nographics -logfile /dev/stdout \
                 -username \"\$UNITY_EMAIL\" \
                 -password \"\$UNITY_PASSWORD\" \
                 -quit || true
-
-              # Copy any generated license files
               cp /root/.local/share/unity3d/Unity/*.ulf /output/ 2>/dev/null || true
               find /root -name '*.ulf' -exec cp {} /output/ \; 2>/dev/null || true
             "
 
-          echo ""
-          echo "=== Results ==="
-          ls -la *.ulf 2>/dev/null || echo "No .ulf files generated"
+          # Check if ULF was generated
+          if ls *.ulf 1>/dev/null 2>&1; then
+            echo ""
+            echo "License file generated! Setting as secret..."
+            echo ""
+            # Set the secret directly - NEVER output the content
+            gh secret set UNITY_LICENSE --repo ${{ github.repository }} < *.ulf
+            echo ""
+            echo "SUCCESS: UNITY_LICENSE secret has been set!"
+            echo ""
+            # Clean up immediately
+            rm -f *.ulf
+          else
+            echo ""
+            echo "ERROR: Automatic activation failed."
+            echo "This usually happens with 2FA enabled."
+            echo "Please use the 'manual' method instead."
+            exit 1
+          fi
 
-      - name: Upload license file (if automatic succeeded)
-        if: inputs.activation_method == 'automatic'
-        uses: actions/upload-artifact@v4
-        with:
-          name: unity-license-file
-          path: "*.ulf"
-          if-no-files-found: warn
-
-      - name: Final instructions
+      - name: Security reminder
         run: |
           echo ""
           echo "=========================================="
-          echo "  NEXT STEPS"
+          echo "  SECURITY REMINDER"
           echo "=========================================="
           echo ""
-          echo "Once you have the .ulf file, set it as a secret:"
+          echo "- NEVER commit .ulf files to the repository"
+          echo "- NEVER upload .ulf files as artifacts"
+          echo "- NEVER share your license file publicly"
           echo ""
-          echo "  gh secret set UNITY_LICENSE --repo ${{ github.repository }} < Unity_v2022.x.ulf"
-          echo ""
-          echo "Required secrets for the main workflow:"
-          echo "  - UNITY_LICENSE (contents of .ulf file)"
-          echo "  - UNITY_EMAIL (your Unity account email)"
-          echo "  - UNITY_PASSWORD (your Unity account password)"
-          echo ""
+          echo "The .ulf file is stored only as a GitHub Secret"
+          echo "(encrypted and never visible in logs)"
           echo "=========================================="
