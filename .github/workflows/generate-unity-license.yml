@@ -1,13 +1,27 @@
-# Helper workflow to generate Unity license file (.ulf)
+# Helper workflow to generate Unity license files
 #
-# SECURITY NOTE: This workflow does NOT upload license files as artifacts.
-# License files are sensitive and should never be publicly accessible.
+# ============================================================================
+# SECURITY NOTES
+# ============================================================================
 #
-# For manual activation:
-#   1. Run this workflow - it outputs the ALF content to logs (safe, it's just a request)
-#   2. Copy the ALF content and save locally as .alf file
-#   3. Upload to https://license.unity3d.com/manual
-#   4. Download the .ulf and set as secret: gh secret set UNITY_LICENSE < file.ulf
+# Both ALF and ULF files contain sensitive information:
+#
+# - ALF (Activation License File): Contains machine fingerprint data.
+#   While it requires your Unity account to convert to a ULF, it still
+#   exposes machine identifiers. Treat as sensitive.
+#
+# - ULF (Unity License File): The actual license. Combined with your
+#   Unity credentials, this grants access to Unity. Highly sensitive.
+#
+# This workflow:
+# - Uploads ALF as a SHORT-LIVED artifact (1 day retention)
+# - NEVER uploads or logs ULF content
+# - Sets ULF directly as a GitHub Secret
+#
+# RECOMMENDATION: For public repos, temporarily make the repo private
+# while running this workflow, then delete artifacts before making public.
+#
+# ============================================================================
 
 name: Generate Unity License
 
@@ -32,8 +46,24 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Security warning
+        run: |
+          echo "=============================================="
+          echo "  SECURITY WARNING"
+          echo "=============================================="
+          echo ""
+          echo "License files contain sensitive machine data."
+          echo ""
+          echo "For PUBLIC repositories:"
+          echo "  1. Consider making repo PRIVATE before running"
+          echo "  2. Download artifacts immediately after completion"
+          echo "  3. Delete artifacts from the workflow run"
+          echo "  4. Then make repo public again if needed"
+          echo ""
+          echo "=============================================="
+
       # =========================================================================
-      # MANUAL METHOD: Generate .alf and output to logs (safe - ALF is not sensitive)
+      # MANUAL METHOD: Generate .alf as short-lived artifact
       # =========================================================================
       - name: Generate activation request (.alf)
         if: inputs.activation_method == 'manual'
@@ -48,52 +78,62 @@ jobs:
               find / -name '*.alf' -exec cp {} /output/ \; 2>/dev/null || true
             "
 
-          # Check if ALF was generated
           if ls *.alf 1>/dev/null 2>&1; then
             echo ""
-            echo "=========================================="
-            echo "  ALF FILE GENERATED SUCCESSFULLY"
-            echo "=========================================="
-            echo ""
-            echo "Copy the content below and save as 'Unity_v2022.alf':"
-            echo ""
-            echo "--- BEGIN ALF FILE ---"
-            cat *.alf
-            echo ""
-            echo "--- END ALF FILE ---"
-            echo ""
+            echo "ALF file generated successfully."
+            echo "It will be uploaded as an artifact (NOT printed to logs)."
           else
             echo "ERROR: No .alf file was generated"
             exit 1
           fi
 
+      - name: Upload ALF as artifact
+        if: inputs.activation_method == 'manual'
+        uses: actions/upload-artifact@v4
+        with:
+          name: unity-activation-request
+          path: "*.alf"
+          retention-days: 1
+          if-no-files-found: error
+
+      - name: Clean up ALF from runner
+        if: inputs.activation_method == 'manual'
+        run: rm -f *.alf
+
       - name: Manual activation instructions
         if: inputs.activation_method == 'manual'
         run: |
           echo ""
-          echo "=========================================="
+          echo "=============================================="
           echo "  NEXT STEPS"
-          echo "=========================================="
+          echo "=============================================="
           echo ""
-          echo "1. Copy the ALF content from the logs above"
-          echo "2. Save it locally as 'Unity_v2022.alf'"
-          echo "3. Go to: https://license.unity3d.com/manual"
-          echo "4. Upload the .alf file"
+          echo "1. Download 'unity-activation-request' artifact from this workflow run"
+          echo "   Command: gh run download <run-id> -n unity-activation-request"
           echo ""
-          echo "   NOTE: If 'Personal' option is hidden:"
+          echo "2. Go to: https://license.unity3d.com/manual"
+          echo ""
+          echo "3. Upload the .alf file"
+          echo ""
+          echo "4. If 'Personal' option is hidden:"
           echo "   - Press F12 to open DevTools"
           echo "   - Go to Elements tab, search for 'option-personal'"
           echo "   - Remove 'style=\"display: none;\"' from that div"
           echo ""
           echo "5. Download the generated .ulf file"
-          echo "6. Set it as a secret (DO NOT commit or upload it!):"
           echo ""
+          echo "6. Set it as a secret (run locally, NOT in CI):"
           echo "   gh secret set UNITY_LICENSE --repo ${{ github.repository }} < Unity_v2022.x.ulf"
           echo ""
-          echo "=========================================="
+          echo "7. DELETE the artifact from this workflow run!"
+          echo "   (Click on the run, scroll to Artifacts, click delete)"
+          echo ""
+          echo "8. Delete the .alf and .ulf files from your local machine"
+          echo ""
+          echo "=============================================="
 
       # =========================================================================
-      # AUTOMATIC METHOD: Try to activate and set secret directly
+      # AUTOMATIC METHOD: Activate and set secret directly (no artifacts)
       # =========================================================================
       - name: Attempt automatic activation
         if: inputs.activation_method == 'automatic'
@@ -119,18 +159,15 @@ jobs:
               find /root -name '*.ulf' -exec cp {} /output/ \; 2>/dev/null || true
             "
 
-          # Check if ULF was generated
           if ls *.ulf 1>/dev/null 2>&1; then
             echo ""
             echo "License file generated! Setting as secret..."
-            echo ""
-            # Set the secret directly - NEVER output the content
+            # Set the secret directly - NEVER output or upload the content
             gh secret set UNITY_LICENSE --repo ${{ github.repository }} < *.ulf
-            echo ""
             echo "SUCCESS: UNITY_LICENSE secret has been set!"
-            echo ""
             # Clean up immediately
             rm -f *.ulf
+            echo "License file deleted from runner."
           else
             echo ""
             echo "ERROR: Automatic activation failed."
@@ -139,17 +176,25 @@ jobs:
             exit 1
           fi
 
-      - name: Security reminder
+      - name: Final security reminder
         run: |
           echo ""
-          echo "=========================================="
-          echo "  SECURITY REMINDER"
-          echo "=========================================="
+          echo "=============================================="
+          echo "  SECURITY CHECKLIST"
+          echo "=============================================="
           echo ""
-          echo "- NEVER commit .ulf files to the repository"
-          echo "- NEVER upload .ulf files as artifacts"
-          echo "- NEVER share your license file publicly"
+          echo "[ ] Downloaded artifacts? Delete them from this run"
+          echo "[ ] Have local .alf/.ulf files? Delete them"
+          echo "[ ] Public repo? Verify no sensitive artifacts remain"
+          echo "[ ] UNITY_LICENSE secret set? Verify in repo settings"
           echo ""
-          echo "The .ulf file is stored only as a GitHub Secret"
-          echo "(encrypted and never visible in logs)"
-          echo "=========================================="
+          echo "License files should ONLY exist as:"
+          echo "  - UNITY_LICENSE GitHub Secret (encrypted)"
+          echo ""
+          echo "They should NEVER be:"
+          echo "  - Committed to the repository"
+          echo "  - Left as downloadable artifacts"
+          echo "  - Shared publicly"
+          echo "  - Stored unencrypted"
+          echo ""
+          echo "=============================================="

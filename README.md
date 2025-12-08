@@ -69,6 +69,8 @@ gh secret set UNITY_EMAIL
 gh secret set UNITY_PASSWORD
 ```
 
+**Important**: Delete the `.alf` and `.ulf` files from your local machine after setting the secrets. See [Security](#security) section below.
+
 ### 4. Test the Setup
 
 1. Go to **Actions** tab
@@ -208,6 +210,54 @@ To change Unity version, update the image tag:
 ```yaml
 image: unityci/editor:ubuntu-6000.0.51f1-linux-il2cpp-3.1.0
 ```
+
+## Security
+
+### License File Sensitivity
+
+Both Unity license files contain sensitive information:
+
+| File | Description | Sensitivity |
+|------|-------------|-------------|
+| `.alf` (Activation License File) | Machine fingerprint data used to request a license | **Sensitive** - Contains machine identifiers. While it requires your Unity account to convert to a ULF, it still exposes machine-specific data. |
+| `.ulf` (Unity License File) | The actual activated license | **Highly Sensitive** - Combined with Unity credentials, this grants access to Unity. Treat like a password. |
+
+### Best Practices for Public Repositories
+
+If your repository is public, take extra precautions when generating licenses:
+
+1. **Temporarily make the repo private** before running the license generation workflow
+2. **Download artifacts immediately** after workflow completion
+3. **Delete artifacts** from the workflow run (Actions → Run → Artifacts → Delete)
+4. **Make the repo public again** only after artifacts are deleted
+5. **Never commit** `.alf` or `.ulf` files to the repository
+
+### Security Checklist
+
+After setting up your license:
+
+- [ ] `UNITY_LICENSE` secret is set (check: Settings → Secrets)
+- [ ] No `.alf` or `.ulf` files in repository
+- [ ] No license artifacts remaining in Actions runs
+- [ ] Local `.alf` and `.ulf` files deleted from your machine
+- [ ] License content never printed to workflow logs
+
+### What This Workflow Does
+
+The `generate-unity-license.yml` workflow is designed with security in mind:
+
+- **ALF files**: Uploaded as short-lived artifacts (1-day retention), never printed to logs
+- **ULF files**: Set directly as GitHub Secret via `gh secret set`, never uploaded or logged
+- **Automatic cleanup**: License files are deleted from the runner after use
+
+### GitHub Copilot Agent Permissions
+
+When using this with GitHub Copilot coding agent:
+
+- Copilot can only modify code in **your own repositories** where you've enabled it
+- It requires **explicit user approval** for PRs before merging
+- The MCP connection only allows Copilot to interact with Unity within the isolated container
+- Service containers are destroyed when the workflow times out (59 minutes max)
 
 ## References
 
