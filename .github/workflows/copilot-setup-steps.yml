@@ -90,20 +90,27 @@ jobs:
       - name: Find service containers
         id: containers
         run: |
-          # Find Unity service container
-          UNITY_CONTAINER=$(docker ps --filter "ancestor=unityci/editor" --format "{{.ID}}" | head -1)
+          echo "All running containers:"
+          docker ps --format "table {{.ID}}\t{{.Image}}\t{{.Status}}"
+          echo ""
+
+          # Find Unity service container (use grep for partial match on image name)
+          UNITY_CONTAINER=$(docker ps --format "{{.ID}} {{.Image}}" | grep -i "unityci/editor" | awk '{print $1}' | head -1)
+          if [ -z "$UNITY_CONTAINER" ]; then
+            echo "WARNING: Unity container not found by image name, trying by port..."
+            UNITY_CONTAINER=$(docker ps --format "{{.ID}} {{.Ports}}" | grep "8090" | awk '{print $1}' | head -1)
+          fi
           echo "unity_container=$UNITY_CONTAINER" >> $GITHUB_OUTPUT
           echo "Unity container: $UNITY_CONTAINER"
 
           # Find MCP Server container
-          MCP_CONTAINER=$(docker ps --filter "ancestor=ivanmurzakdev/unity-mcp-server" --format "{{.ID}}" | head -1)
+          MCP_CONTAINER=$(docker ps --format "{{.ID}} {{.Image}}" | grep -i "unity-mcp-server" | awk '{print $1}' | head -1)
+          if [ -z "$MCP_CONTAINER" ]; then
+            echo "WARNING: MCP container not found by image name, trying by port..."
+            MCP_CONTAINER=$(docker ps --format "{{.ID}} {{.Ports}}" | grep "8080" | awk '{print $1}' | head -1)
+          fi
           echo "mcp_container=$MCP_CONTAINER" >> $GITHUB_OUTPUT
           echo "MCP Server container: $MCP_CONTAINER"
-
-          # List all running containers
-          echo ""
-          echo "All containers:"
-          docker ps --format "table {{.ID}}\t{{.Image}}\t{{.Status}}"
 
       - name: Activate Unity License
         uses: game-ci/unity-activate@v2
